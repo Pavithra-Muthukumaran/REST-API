@@ -1,115 +1,175 @@
 import express from 'express';
+import mongoose from 'mongoose';
 
 const app = express();
-const port = 5000;
-
-// Middleware to parse JSON
+const port = 3000;
 app.use(express.json());
 
-// In-memory users array
-let users = [
-  { id: 1, name: 'Pavithra', email: 'pavi@example.com', age: 23 },
-  { id: 2, name: 'Vivek', email: 'rahul@example.com', age: 29},
-  { id: 3, name: 'Mounika', email: 'mouni@example.com', age: 21 },
-  { id: 4, name: 'Vadivel', email: 'vikramvel2000@gmail.com', age: 25   }
-];
+// ===== MongoDB Connection =====
+const mongoURI = 'mongodb+srv://pavithra:pathra11@connectdb.dzwyiej.mongodb.net/?retryWrites=true&w=majority&appName=ConnectDB';
+mongoose.connect(mongoURI, { useNewUrlParser: true, useUnifiedTopology: true })
+  .then(() => console.log('Connected to MongoDB'))
+  .catch(err => console.error('MongoDB connection error:', err));
 
-// ✅ GET /users – List all users
-app.get('/users', (req, res) => {
-  res.json(users);
+// ===== User Schema =====
+const userSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  email: { type: String, required: true },
+  age: { type: Number, required: true },
+  isActive: { type: Boolean, default: true }
 });
 
-// ✅ GET /users/:id – Get user by ID
-app.get('/users/:id', (req, res) => {
-  const userId = parseInt(req.params.id);
-  const user = users.find(u => u.id === userId);
+const User = mongoose.model('User', userSchema);
 
-  if (!user) {
-    return res.status(404).json({ message: 'User not found' });
+// ===== Product Schema =====
+const productSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  price: { type: Number, required: true },
+  category: { type: String, required: true }
+});
+
+const Product = mongoose.model('Product', productSchema);
+
+// ===== USER ROUTES =====
+
+// GET all active users
+app.get('/users', async (req, res) => {
+  try {
+    const users = await User.find({ isActive: true });
+    res.json(users);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
-
-  res.json(user);
 });
 
-// ✅ POST /users – Add user
-app.post('/users', (req, res) => {
-  const { name, email, age } = req.body;
-
-  if (!name || !email || !age) {
-    return res.status(400).json({ message: 'Name, email, and age are required' });
+// GET users older than a given age
+app.get('/users/age/:min', async (req, res) => {
+  const minAge = parseInt(req.params.min);
+  try {
+    const users = await User.find({ age: { $gt: minAge }, isActive: true });
+    res.json(users);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
-
-  const newUser = {
-    id: users.length ? users[users.length - 1].id + 1 : 1,
-    name,
-    email,
-    age
-  };
-
-  users.push(newUser);
-  res.status(201).json(newUser);
 });
 
-// ✅ PUT /users/:id – Update user
-app.put('/users/:id', (req, res) => {
-  const userId = parseInt(req.params.id);
-  const { name, email, age } = req.body;
-
-  const userIndex = users.findIndex(u => u.id === userId);
-  if (userIndex === -1) {
-    return res.status(404).json({ message: 'User not found' });
+// GET user by ID
+app.get('/users/:id', async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    res.json(user);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
+});
 
-  if (!name || !email || !age) {
-    return res.status(400).json({ message: 'Name, email, and age are required' });
+// POST add user
+app.post('/users', async (req, res) => {
+  const { name, email, age, isActive } = req.body;
+  if (!name || !email || !age) return res.status(400).json({ message: 'Name, email, age required' });
+
+  const newUser = new User({ name, email, age, isActive });
+  try {
+    const savedUser = await newUser.save();
+    res.status(201).json(savedUser);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
-
-  users[userIndex] = { id: userId, name, email, age };
-  res.json(users[userIndex]);
 });
 
-// ✅ DELETE /users/:id – Remove user
-app.delete('/users/:id', (req, res) => {
-  const userId = parseInt(req.params.id);
-  const userIndex = users.findIndex(u => u.id === userId);
-
-  if (userIndex === -1) {
-    return res.status(404).json({ message: 'User not found' });
+// PUT update user
+app.put('/users/:id', async (req, res) => {
+  const { name, email, age, isActive } = req.body;
+  try {
+    const updatedUser = await User.findByIdAndUpdate(
+      req.params.id,
+      { name, email, age, isActive },
+      { new: true, runValidators: true }
+    );
+    if (!updatedUser) return res.status(404).json({ message: 'User not found' });
+    res.json(updatedUser);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
-
-  users.splice(userIndex, 1);
-  res.json({ message: 'User deleted successfully' });
 });
 
-// ✅ /users/search?name=Rahul – Search by name
-app.get('/users/search', (req, res) => {
-  const { name } = req.query;
-  if (!name) {
-    return res.status(400).json({ message: 'Please provide a name query parameter' });
+// DELETE user
+app.delete('/users/:id', async (req, res) => {
+  try {
+    const deletedUser = await User.findByIdAndDelete(req.params.id);
+    if (!deletedUser) return res.status(404).json({ message: 'User not found' });
+    res.json({ message: 'User deleted successfully' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
+});
 
-  const results = users.filter(u => u.name.toLowerCase().includes(name.toLowerCase()));
+// ===== PRODUCT ROUTES =====
 
-  if (results.length === 0) {
-    return res.status(404).json({ message: 'No users found with that name' });
+// GET all products
+app.get('/products', async (req, res) => {
+  try {
+    const products = await Product.find();
+    res.json(products);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
-
-  res.json(results);
 });
 
-// ✅ /users/adults – Return users aged 18 or above
-app.get('/users/adults', (req, res) => {
-  const adults = users.filter(u => u.age >= 18);
-  res.json(adults);
+// GET product by ID
+app.get('/products/:id', async (req, res) => {
+  try {
+    const product = await Product.findById(req.params.id);
+    if (!product) return res.status(404).json({ message: 'Product not found' });
+    res.json(product);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
 });
 
-// ✅ /users/emails – Return only email list
-app.get('/users/emails', (req, res) => {
-  const emails = users.map(u => u.email);
-  res.json(emails);
+// POST add product
+app.post('/products', async (req, res) => {
+  const { name, price, category } = req.body;
+  if (!name || !price || !category) return res.status(400).json({ message: 'All fields required' });
+
+  const newProduct = new Product({ name, price, category });
+  try {
+    const savedProduct = await newProduct.save();
+    res.status(201).json(savedProduct);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
 });
 
-// ✅ Start server
+// PUT update product
+app.put('/products/:id', async (req, res) => {
+  const { name, price, category } = req.body;
+  try {
+    const updatedProduct = await Product.findByIdAndUpdate(
+      req.params.id,
+      { name, price, category },
+      { new: true, runValidators: true }
+    );
+    if (!updatedProduct) return res.status(404).json({ message: 'Product not found' });
+    res.json(updatedProduct);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// DELETE product
+app.delete('/products/:id', async (req, res) => {
+  try {
+    const deletedProduct = await Product.findByIdAndDelete(req.params.id);
+    if (!deletedProduct) return res.status(404).json({ message: 'Product not found' });
+    res.json({ message: 'Product deleted successfully' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// ===== Start Server =====
 app.listen(port, () => {
-  console.log(`🚀 Server running at http://localhost:${port}/`);
+  console.log(`Server running at http://localhost:${port}/`);
 });
